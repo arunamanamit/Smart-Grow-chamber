@@ -1,0 +1,223 @@
+#define BLYNK_TEMPLATE_ID "TMPL3uleSHwL4"
+#define BLYNK_TEMPLATE_NAME "ClimateBox"
+#define BLYNK_AUTH_TOKEN "aclZX0l899xYEerq4xo66t9puiOpbKH5"
+
+#include <WiFi.h>
+#include <WiFiClient.h>
+#include <BlynkSimpleEsp32.h>
+#include <DHT.h>
+
+char ssid[] = "AMAN";
+char pass[] = "11111111";
+
+// Relay pins
+#define RELAY1 5
+#define RELAY2 18
+#define RELAY3 19
+#define FAN_RELAY 23
+
+// DHT11 setup
+#define DHTPIN 4
+#define DHTTYPE DHT11
+DHT dht(DHTPIN, DHTTYPE);
+
+BlynkTimer timer;
+
+// Virtual pins
+#define VPIN_RELAY1 V0
+#define VPIN_RELAY2 V1
+#define VPIN_RELAY3 V2
+#define VPIN_HUMIDITY V3
+#define VPIN_TEMPERATURE V4
+#define VPIN_FAN_LED V5
+
+// Timer tracking struct
+struct LightTimer {
+  int relayPin;
+  int timerId;
+  unsigned long startTime;
+  unsigned long duration;
+  unsigned long remainingTime;
+  bool isRunning;
+  bool isPaused;
+};
+
+LightTimer light1 = {RELAY1, -1, 0, 0, 0, false, false};
+LightTimer light2 = {RELAY2, -1, 0, 0, 0, false, false};
+LightTimer light3 = {RELAY3, -1, 0, 0, 0, false, false};
+
+// Fan control flag
+bool fanState = false;
+
+void setup() {
+  Serial.begin(115200);
+
+  pinMode(RELAY1, OUTPUT);
+  pinMode(RELAY2, OUTPUT);
+  pinMode(RELAY3, OUTPUT);
+  pinMode(FAN_RELAY, OUTPUT);
+
+  digitalWrite(RELAY1, HIGH);
+  digitalWrite(RELAY2, HIGH);
+  digitalWrite(RELAY3, HIGH);
+  digitalWrite(FAN_RELAY, HIGH);
+
+  dht.begin();
+  Blynk.begin(BLYNK_AUTH_TOKEN, ssid, pass);
+  timer.setInterval(2000L, checkHumidityAndControlFan);
+}
+
+// Manual control for lights
+BLYNK_WRITE(VPIN_RELAY1) {
+  int state = param.asInt();
+  digitalWrite(RELAY1, state ? LOW : HIGH);
+
+  if (state) {
+    if (light1.isPaused) {
+      resumeLightCycle(light1);
+    }
+  } else {
+    if (light1.isRunning) {
+      pauseLightCycle(light1);
+    }
+  }
+}
+
+BLYNK_WRITE(VPIN_RELAY2) {
+  int state = param.asInt();
+  digitalWrite(RELAY2, state ? LOW : HIGH);
+
+  if (state) {
+    if (light2.isPaused) {
+      resumeLightCycle(light2);
+    }
+  } else {
+    if (light2.isRunning) {
+      pauseLightCycle(light2);
+    }
+  }
+}
+
+BLYNK_WRITE(VPIN_RELAY3) {
+  int state = param.asInt();
+  digitalWrite(RELAY3, state ? LOW : HIGH);
+
+  if (state) {
+    if (light3.isPaused) {
+      resumeLightCycle(light3);
+    }
+  } else {
+    if (light3.isRunning) {
+      pauseLightCycle(light3);
+    }
+  }
+}
+
+// Timer buttons for each light
+BLYNK_WRITE(V6)  { if (param.asInt()) startLightCycle(light1, 180); }
+BLYNK_WRITE(V7)  { if (param.asInt()) startLightCycle(light1, 360); }
+BLYNK_WRITE(V8)  { if (param.asInt()) startLightCycle(light1, 720); }
+
+BLYNK_WRITE(V9)  { if (param.asInt()) startLightCycle(light2, 180); }
+BLYNK_WRITE(V10) { if (param.asInt()) startLightCycle(light2, 360); }
+BLYNK_WRITE(V11) { if (param.asInt()) startLightCycle(light2, 720); }
+
+BLYNK_WRITE(V12) { if (param.asInt()) startLightCycle(light3, 180); }
+BLYNK_WRITE(V13) { if (param.asInt()) startLightCycle(light3, 360); }
+BLYNK_WRITE(V14) { if (param.asInt()) startLightCycle(light3, 720); }
+
+BLYNK_WRITE(V15) {
+  if (param.asInt()) {
+    startLightCycle(light1, 180);
+    startLightCycle(light2, 180);
+    startLightCycle(light3, 180);
+  }
+}
+BLYNK_WRITE(V16) {
+  if (param.asInt()) {
+    startLightCycle(light1, 360);
+    startLightCycle(light2, 360);
+    startLightCycle(light3, 360);
+  }
+}
+BLYNK_WRITE(V17) {
+  if (param.asInt()) {
+    startLightCycle(light1, 720);
+    startLightCycle(light2, 720);
+    startLightCycle(light3, 720);
+  }
+}
+
+void startLightCycle(LightTimer &lt, int minutes) {
+  digitalWrite(lt.relayPin, LOW);
+  if (lt.timerId != -1) {
+    timer.deleteTimer(lt.timerId);
+  }
+  lt.duration = minutes * 60000UL;
+  lt.remainingTime = lt.duration;
+  lt.startTime = millis();
+  lt.isRunning = true;
+  lt.isPaused = false;
+
+  LightTimer* ptr = &lt;
+  lt.timerId = timer.setTimeout(lt.remainingTime, [ptr]() {
+    digitalWrite(ptr->relayPin, HIGH);
+    ptr->timerId = -1;
+    ptr->isRunning = false;
+    ptr->isPaused = false;
+  });
+}
+
+void pauseLightCycle(LightTimer &lt) {
+  if (lt.timerId != -1) {
+    timer.deleteTimer(lt.timerId);
+    lt.timerId = -1;
+  }
+  lt.remainingTime = lt.duration - (millis() - lt.startTime);
+  lt.isPaused = true;
+  lt.isRunning = true;
+  digitalWrite(lt.relayPin, HIGH);
+}
+
+void resumeLightCycle(LightTimer &lt) {
+  digitalWrite(lt.relayPin, LOW);
+  lt.startTime = millis();
+  lt.isPaused = false;
+  lt.isRunning = true;
+
+  LightTimer* ptr = &lt;
+  lt.timerId = timer.setTimeout(lt.remainingTime, [ptr]() {
+    digitalWrite(ptr->relayPin, HIGH);
+    ptr->timerId = -1;
+    ptr->isRunning = false;
+    ptr->isPaused = false;
+  });
+}
+
+void checkHumidityAndControlFan() {
+  float h = dht.readHumidity();
+  float t = dht.readTemperature();
+
+  if (isnan(h) || isnan(t)) {
+    Serial.println("Failed to read from DHT sensor!");
+    return;
+  }
+
+  Blynk.virtualWrite(VPIN_HUMIDITY, h);
+  Blynk.virtualWrite(VPIN_TEMPERATURE, t);
+
+  if (!fanState && h < 50) {
+    digitalWrite(FAN_RELAY, LOW);
+    Blynk.virtualWrite(VPIN_FAN_LED, 255);
+    fanState = true;
+  } else if (fanState && h > 60) {
+    digitalWrite(FAN_RELAY, HIGH);
+    Blynk.virtualWrite(VPIN_FAN_LED, 0);
+    fanState = false;
+  }
+}
+
+void loop() {
+  Blynk.run();
+  timer.run();
+}
