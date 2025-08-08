@@ -1,6 +1,9 @@
 🌡️ ClimateBox – Smart ESP32 Climate & Light Control System
 This project uses an ESP32, DHT11 sensor, relays, and Blynk to control lights and a fan based on timers and humidity data.
 
+Circuit Digram Archicture
+(https://app.cirkitdesigner.com/project/05826c1d-f682-4ff2-b8b2-8ec47b0c2913)
+
 📦 Hardware Requirements
  ESP32 board
 
@@ -140,3 +143,4 @@ Double-check logic level (LOW = ON for relay).
 Blynk not connecting?
 
 Confirm Wi-Fi credentials and check your BLYNK_AUTH_TOKEN.
+
